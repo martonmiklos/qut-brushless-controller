@@ -37,3 +37,6 @@
 #define STARTUP_TICKS_BEGIN	65000 //Larger/heavier motors need larger values
 #define STARTUP_TICKS_END	10000 //Startup complete once commutation rate is this many clock ticks
 								 //If motor is starting but not achieving closed loop control lock, lower this
+								 
+#define ZC_BLANKING_TICKS	320 //Timer1 ticks to wait before enabling zero cross detection.
+#define ZC_SPIKE_CHECK		320 //ZC detection will reject spikes less than this value of clock ticks

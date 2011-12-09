@@ -37,8 +37,8 @@
 //8-bit (0-255), 7.8khz
 #define PWM_TOP				255 //Maximum pwmVal possible
 //Leave a buffer between on and off (on > off) to avoid switching rapidly between on/off state
-#define PWM_ON_THR			20 //When off, pwmVal must go above this value before motor will turn on
-#define PWM_OFF_THR			10 //When running, motor will turn off when pwmVal goes below this value
+#define PWM_ON_THR			50 //When off, pwmVal must go above this value before motor will turn on
+#define PWM_OFF_THR			30 //When running, motor will turn off when pwmVal goes below this value
 
 //TIMER 1 - Commutation Timing
 //TODO
@@ -46,10 +46,10 @@
 #define TIMER1_PRESCL		(1 << CS10)
 #define TIMER1_START()		(TCCR1B |= TIMER1_PRESCL) //Start timer at defined prescaler
 #define TIMER1_STOP()		(TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10))) //Clear all prescaler bits (stop the timer)
-#define DISABLE_COMM()		(TIMSK &= ~(1 << OCIE1A)) //Disable Timer1 OCR1A interrupt
-#define ENABLE_COMM()		(TIMSK |= (1 << OCIE1A)) //Enable Timer1 OCR1A interrupt
-#define DISABLE_SPIKE_REJECTION() (TIMSK &= ~(1 << OCIE1B)) //Disable Timer1 OCR1B interrupt
-#define ENABLE_SPIKE_REJECTION()  (TIMSK |= (1 << OCIE1B)) //Enable Timer1 OCR1B interrupt
+#define DISABLE_OC1A()		(TIMSK &= ~(1 << OCIE1A)) //Disable Timer1 OCR1A interrupt
+#define ENABLE_OC1A()		(TIMSK |= (1 << OCIE1A)) //Enable Timer1 OCR1A interrupt
+#define DISABLE_OC1B()		(TIMSK &= ~(1 << OCIE1B)) //Disable Timer1 OCR1B interrupt
+#define ENABLE_OC1B()		(TIMSK |= (1 << OCIE1B)) //Enable Timer1 OCR1B interrupt
 
 //TIMER 2 - PWM Timing
 #define TIMER2_TIMSK		((1 << OCIE2) | (1 << TOIE2)) //Enable interrupts for timer2
@@ -74,15 +74,6 @@
 #endif
 
 #define GET_ACO()			((ACSR & (1 << ACO)) >> ACO) //analog comparator reading shifted to bit 1
-
-#define ZC_START_DETECT()	(TIMSK |= (1 << TICIE1)) // enable/disable input capture interrupt
-#define ZC_STOP_DETECT()	(TIMSK &= ~(1 << TICIE1))
-
-#define ZC_DETECT_FALLING()	(TCCR1B |= (1 << ICES1)) //A rising comparator is actually a falling B-EMF
-#define ZC_DETECT_RISING()	(TCCR1B &= ~(1 << ICES1)) //A falling comparator is actually a rising B-EMF
-
-#define ZC_BLANKING_TICKS	200 //Timer1 ticks to wait before enabling zero cross detection. Needs to be ~12uS
-#define ZC_NOISE_REJECT		200 //ZC detection will reject spikes less than this value of clock ticks
 
 
 //------OUTPUT PIN STATES------//
