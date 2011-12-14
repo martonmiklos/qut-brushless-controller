@@ -46,8 +46,8 @@
 #define TIMER1_PRESCL		(1 << CS10)
 #define TIMER1_START()		(TCCR1B |= TIMER1_PRESCL) //Start timer at defined prescaler
 #define TIMER1_STOP()		(TCCR1B &= ~((1 << CS12) | (1 << CS11) | (1 << CS10))) //Clear all prescaler bits (stop the timer)
-#define DISABLE_OC1A()		(TIMSK &= ~(1 << OCIE1A)) //Disable Timer1 OCR1A interrupt
-#define ENABLE_OC1A()		(TIMSK |= (1 << OCIE1A)) //Enable Timer1 OCR1A interrupt
+#define DISABLE_COMMUTATION() (TIMSK &= ~(1 << OCIE1A)) //Disable Timer1 OCR1A interrupt
+#define ENABLE_COMMUTATION()  (TIMSK |= (1 << OCIE1A)) //Enable Timer1 OCR1A interrupt
 #define DISABLE_OC1B()		(TIMSK &= ~(1 << OCIE1B)) //Disable Timer1 OCR1B interrupt
 #define ENABLE_OC1B()		(TIMSK |= (1 << OCIE1B)) //Enable Timer1 OCR1B interrupt
 
@@ -55,8 +55,8 @@
 #define TIMER2_TIMSK		((1 << OCIE2) | (1 << TOIE2)) //Enable interrupts for timer2
 #define TIMER2_TCCR2		((1 << WGM21) | (1 << WGM20)) //Fast PWM mode
 #define TIMER2_PRESCL		((0 << CS22) | (1 << CS21) | (0 << CS20)) //clk/8
-#define PWM_START()			(TCCR2 |= TIMER2_PRESCL) //Start timer at designated prescaler
-#define PWM_STOP()			(TCCR2 &= ~TIMER2_PRESCL) //Stop timer
+#define START_PWM()			(TCCR2 |= TIMER2_PRESCL) //Start timer at designated prescaler
+#define STOP_PWM()			(TCCR2 &= ~TIMER2_PRESCL) //Stop timer
 
 //Top value determines frequency, compare value determines duty cycle (volume)
 #define LOWBEEP				//TODO
