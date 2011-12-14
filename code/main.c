@@ -28,8 +28,8 @@
 #include "config/BLDC_config.h"
 //#include "config/BLDC_motor_A2208.h"
 //#include "config/BLDC_motor_smallpink.h"
-#include "config/BLDC_motor_smallsilver.h"
-//#include "config/BLDC_motor_HDD.h"
+//#include "config/BLDC_motor_smallsilver.h"
+#include "config/BLDC_motor_HDD.h"
 
 //Controller is broken up into easy to manage stubs
 #include "rc_signal.h"
@@ -53,8 +53,13 @@ volatile uint8_t 	zcActive; //Whether ZC detection is active or not
 volatile uint8_t 	zcDetected; //Sets flag when ZC occurs, clears if it was just a spike
 volatile uint8_t 	targetACO; //What the ACO reading should be after a ZC (either 1 or 0)
 volatile uint16_t 	zcTime; //Timer ticks when ZC was detected
+volatile uint16_t 	zcTimeHigh;
+volatile uint16_t 	zcTimeLow;
+volatile uint16_t 	lastZcToggleTime;
 volatile uint16_t 	nextComm; //Timer ticks when next commutation will occur
 volatile uint16_t 	prevCommDiv2; //Half of previous commutation time
+volatile uint16_t	startupElapsed; //elapsed time during startup
+volatile uint16_t 	stabilisingCounts; //Used to track how many commutations have occured during stabilisation
 volatile uint8_t 	t1_ovfs;
 volatile uint8_t 	startupState;
 volatile uint8_t 	pwmVal; //0->255
@@ -105,7 +110,9 @@ int main(void)
 			if (signalBuffer) { //When signal buffer is populated, update PWM
 				pwmVal = processRCSignal(signalBuffer);
 				signalBuffer = 0; //Clear signal
-				setPWM(pwmVal);
+				//setPWM(pwmVal);
+				//USART_SendInt(pwmVal);
+				//USART_NewLine();
 				
 				if (pwmVal < PWM_OFF_THR) {
 					//turn off motor (allow coast to a stop), disable pwm
@@ -118,14 +125,28 @@ int main(void)
 
 ISR(TIMER1_COMPA_vect)
 {
-	if (startupState) {
-		OCR1A *= (1 - STARTUP_RAMP);
-	}
-	else {
-		DISABLE_OC1A(); //disable commutation interrupt
-	}
-	nextCommutation();
+	//PORTB &= ~(1 << PB1);
 	TCNT1 = 0;
+	nextCommutation();
+	
+	switch (startupState) {
+	case 1:
+		//calculate next timer period
+		//OCR1A *= (1 - STARTUP_RAMP_FACTOR);
+		startupElapsed += OCR1A / 256;
+		double frac = startupElapsed / (double)STARTUP_DURATION; //Fraction of elapsed time to total startup duration
+		OCR1A = (uint16_t)(STARTUP_TICKS_BEGIN - (STARTUP_TICKS_BEGIN - STARTUP_TICKS_END)*((3-2*frac)*frac*frac)); //Calculate new wait period based on S-curve
+		break;
+	case 2:
+		//stabilisation state, just continue commutating
+		stabilisingCounts++;
+		break;
+	default:
+		//Not in startup state
+		DISABLE_OC1A(); //disable commutation interrupt
+		prevCommDiv2 = OCR1A / 2; //Store half of the commutation time for next commutation
+		break;
+	}
 }
 
 ISR(TIMER1_COMPB_vect)
@@ -134,23 +155,23 @@ ISR(TIMER1_COMPB_vect)
 		//Input capture interrupt is set, so zero crossing was detected
 		if (zcDetected) {
 			//Analog comparator output has remained the same since interrupt occured, zero crossing has been detected
+			PORTB |= (1 << PB1);
 			stopZCDetection();
 			TIFR |= (1 << ICF1); //Make sure input capture flag is cleared by writing logic 1 to it
 			
-			nextComm = zcTime + prevCommDiv2;
-			OCR1A = nextComm; //Set commutation time to half last commutation period
-			ENABLE_OC1A(); //Enable commutation to occur
-			prevCommDiv2 = (nextComm)/2; //Adjusts new comm time based on early/late ZC
+			nextComm = zcTime*2;// + prevCommDiv2; //Add half of prev commutation time to ZC time. This smooths out motor acceleration
+			//OCR1A = nextComm; //Set up commutation time
+			//ENABLE_OC1A(); //Enable commutation to occur
 			
 			//TODO: SET FLAG FOR MAIN LOOP TO CALCULATE VOLTAGE/CURRENT ADC
 		}
 	}
 	else {
-		//End of blanking period. Start detecting ZC
+		//ZC not active, which means end of blanking period. If ZC already detected, check for induction spike, otherwise start detecting ZC.
 		if (zcDetected) {
 			//ZC may have happened already, start spike detection
-			zcTime = OCR1B;
-			OCR1B += ZC_SPIKE_CHECK;
+			zcTime = TCNT1;
+			OCR1B = zcTime + ZC_SPIKE_CHECK;
 		}
 		startZCDetection();
 	}
@@ -158,7 +179,7 @@ ISR(TIMER1_COMPB_vect)
 
 ISR(TIMER1_OVF_vect)
 {
-	if (zcActive) {
+	if (zcActive && !startupState) {
 		//Timer has overflowed during ZC detection, motor is stalled
 		stopMotor();
 	}
@@ -189,8 +210,14 @@ ISR(TIMER2_OVF_vect)
 
 ISR(TIMER1_CAPT_vect)
 {
-	zcTime = ICR1;
-	OCR1B = zcTime + ZC_SPIKE_CHECK;
+	//if (zcActive) {
+		//Only execute when in ZC detection mode
+	//	zcTime = ICR1;
+	//	OCR1B = zcTime + ZC_SPIKE_CHECK;
+	//}
+	uint16_t temp = TCNT1; //store time in first instruction
+	zcTimeLow += temp - lastZcToggleTime;
+	lastZcToggleTime = temp;
 	zcDetected = 1; //ZC flag to detect spikes, it is cleared when ACO changes back to original reading
 	PORTB |= (1 << PB1);
 }
@@ -198,13 +225,17 @@ ISR(TIMER1_CAPT_vect)
 ISR(ANA_COMP_vect)
 {
 	//Analog comparator trigger is always the opposite of a ZC, it detects when a spike/false ZC occurs
+	uint16_t temp = TCNT1; //store time in first instruction
+	zcTimeHigh += temp - lastZcToggleTime;
+	lastZcToggleTime = temp;
 	zcDetected = 0;
 	PORTB &= ~(1 << PB1);
 }
 
 void setPWM(uint8_t val)
 {
-	OCR2 = val;
+	pwmVal = val; //store current pwm value here
+	OCR2 = pwmVal;
 }
 
 void startMotor(void)
@@ -219,7 +250,7 @@ void startMotor(void)
 	commState = 1;
 	startupState = 1;
 	
-	stopZCDetection(); //Make sure ZC detection is off
+	//stopZCDetection(); //Make sure ZC detection is off
 	
 	setPWM(STARTUP_LOCK_PWM);
 	PWM_START(); //enable PWM
@@ -234,18 +265,45 @@ void startMotor(void)
 		while (t1_ovfs < STARTUP_RLOCK) {} //wait until defined overflows occurs
 	}
 	
-	//Commutations now handled in interrupts   
+	//Commutations now handled in interrupts
 	setPWM(STARTUP_RAMP_PWM);
 	OCR1A = STARTUP_TICKS_BEGIN;
+	startupElapsed = 0;
 	ENABLE_OC1A();
 	while (OCR1A > STARTUP_TICKS_END) {} //Wait until ramp has finished
 	
+	//continue commutating at the same timer period to stabilise rotor speed
+	startupState = 2;
+	setPWM(130);
+	stabilisingCounts = 0;
+	while (stabilisingCounts < 5000) {}
+	while (pwmVal > 100) {
+		pwmVal--;
+		setPWM(pwmVal);
+		stabilisingCounts = 0;
+		while (stabilisingCounts < 80) {}
+	}
+	while (pwmVal > 80) {
+		pwmVal--;
+		setPWM(pwmVal);
+		stabilisingCounts = 0;
+		while (stabilisingCounts < 100) {}
+	}
+	while (pwmVal > 78) {
+		pwmVal--;
+		setPWM(pwmVal);
+		stabilisingCounts = 0;
+		while (stabilisingCounts < 200) {}
+	}
+	
+	//TODO: sense back-emf before passing to closed loop
+	
 	//Getting ready to detect ZC using analog comparator
-	DISABLE_OC1A();
+	//DISABLE_OC1A();
 	prevCommDiv2 = OCR1A / 2;
-	startupState = 0;
-	OCR1B = ZC_BLANKING_TICKS; //Set blanking period to avoid inductive spikes
-	ENABLE_OC1B();
+	//startupState = 0;
+	//OCR1B = ZC_BLANKING_TICKS; //Set blanking period to avoid inductive spikes
+	//ENABLE_OC1B();
 }
 
 void stopMotor(void)
@@ -272,13 +330,16 @@ void nextCommutation(void)
 	if (commState % 2 == 0) {
 		//Even number, rising BEMF
 		detectRisingBEMF();
-		targetACO = 0;
 	}
 	else {
 		//Odd number, falling BEMF
 		detectFallingBEMF();
-		targetACO = 1;
 	}
+	
+	//Before commutating, clear ZC flag
+	PORTB &= ~(1 << PB1);
+	zcDetected = 0;
+	lastZcToggleTime = TCNT1;
 	
 	switch (commState) {
 
@@ -340,33 +401,35 @@ void nextCommutation(void)
 	  	break;
 	}
 	commState++;
-		
-	if (!startupState) OCR1B = ZC_BLANKING_TICKS; //Set blanking period
+	
+	//OCR1B = ZC_BLANKING_TICKS; //Set blanking period
 }
 
 void detectRisingBEMF(void)
 {
 	TCCR1B &= ~(1 << ICES1); //A falling comparator is a rising B-EMF
 	ACSR |= (1 << ACIS0); //Detects when ACO returns to its former state (i.e. when a spike happens)
+	targetACO = 0;
 }
 
 void detectFallingBEMF(void)
 {
 	TCCR1B |= (1 << ICES1); //A rising comparator is a falling B-EMF
 	ACSR &= ~(1 << ACIS0); //Detects when ACO returns to its former state (i.e. when a spike happens)
+	targetACO = 1;
 }
 
 void startZCDetection(void)
 {
-	TIMSK |= (1 << TICIE1);
-	ACSR |= (1 << ACIE);
+	//TIMSK |= (1 << TICIE1);
+	//ACSR |= (1 << ACIE);
 	zcActive = 1;
 }
 
 void stopZCDetection(void)
 {
-	TIMSK &= ~(1 << TICIE1);
-	ACSR &= ~(1 << ACIE);
+	//TIMSK &= ~(1 << TICIE1);
+	//ACSR &= ~(1 << ACIE);
 	zcActive = 0;
 }
 
@@ -413,12 +476,9 @@ void init_registers(void)
 	SFIOR |= (1 << ACME); //Set comparator -ve input to ADMUX
 	ACSR |= (1 << ACIC) | (1 << ACIS1);
 	
-	//CAPT_RISING();
-	//ACO_FALLING();
-	//ADMUX = ADC_A;
-	
-	//ZC_START_DETECT();
-	//ACO_ON();
+	TIMSK |= (1 << TICIE1); //enable input capture interrupt
+	ACSR |= (1 << ACIE); //enable ACO interrupt
+	startZCDetection();
 	
 	sei(); //Enable interrupts
 }
