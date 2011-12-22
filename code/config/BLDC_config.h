@@ -25,6 +25,16 @@
 //NOTE: MCU name and processor frequency are set in the makefile
 
 #include <avr/io.h>
+#include <avr/interrupt.h>
+
+//Pin definitions
+#include "BLDC_pindefs_breadboard.h"
+
+//Motor tuning
+//#include "BLDC_motor_A2208.h"
+//#include "BLDC_motor_smallpink.h"
+//#include "BLDC_motor_smallsilver.h"
+#include "BLDC_motor_HDD.h"
 
 // 1 = RC Servo Signal on INT0
 // 2 = I2C Signal using SDA and SDL (TODO)

@@ -20,18 +20,11 @@
 //      Main Controller File         //
 //===================================//
 //Initialisation and main program code
-#include <avr/io.h>
-#include <avr/interrupt.h>
 
-//Pin definitions and config files
-#include "config/BLDC_pindefs_breadboard.h"
+//Main config file
 #include "config/BLDC_config.h"
-//#include "config/BLDC_motor_A2208.h"
-//#include "config/BLDC_motor_smallpink.h"
-//#include "config/BLDC_motor_smallsilver.h"
-#include "config/BLDC_motor_HDD.h"
 
-//Controller is broken up into easy to manage stubs
+//Only include modules that are used
 #include "rc_signal.h"
 #include "debug.h"
 
@@ -60,12 +53,13 @@ volatile uint16_t 	newCommTime;
 volatile uint16_t 	currCommTime; //Half of previous commutation time
 volatile uint16_t	startupRampElapsed; //elapsed time during startup ramp
 volatile uint16_t 	stabilisingCounts; //Used to track how many commutations have occured during stabilisation
-volatile uint8_t 	t1_ovfs;
+volatile uint16_t 	t1_ovfs;
 volatile uint8_t 	startupState;
 volatile uint8_t 	pwmVal; //0->255
 volatile uint8_t 	pwmPhase; //0=NONE, 1=A, 2=B, 3=C
 volatile uint8_t 	motorON; //0=off, 1=on
 volatile uint8_t 	commState; //1->6, then loops
+volatile uint8_t 	testcount;
 
 int main(void)
 {
@@ -109,7 +103,7 @@ int main(void)
 			if (signalBuffer) { //When signal buffer is populated, update PWM
 				pwmVal = processRCSignal(signalBuffer);
 				signalBuffer = 0; //Clear signal
-				setPWM(pwmVal);
+				//setPWM(pwmVal);
 				//USART_SendInt(pwmVal);
 				//USART_NewLine();
 				
@@ -124,10 +118,11 @@ int main(void)
 
 ISR(TIMER1_COMPA_vect)
 {
-	PORTB &= ~(1 << PB1);
+	//PORTB &= ~(1 << PB1);
 	
 	if (!zcDetected) { totalZcLowTime += TCNT1 - startZcLowTime; } //add last section of timer to ZC_low
 	newCommTime += totalZcLowTime; //Calculates the new comm time over 2 commutations
+	OCR1B = totalZcLowTime;
 	if (commState % 2 > 0) { //Odd number
 		//Start of commutation cycle, set new commutation time
 		
@@ -138,14 +133,14 @@ ISR(TIMER1_COMPA_vect)
 		if (newCommTime > (currCommTime * 2)) {
 			newCommTime = (uint16_t)(currCommTime * 2);
 		}
-		if (newCommTime > currCommTime)
-			OCR1B = newCommTime-currCommTime;
-		else
-			OCR1B = newCommTime;
+		//if (newCommTime > currCommTime)
+			//OCR1B = newCommTime-currCommTime;
+		//else
+			//OCR1B = newCommTime;
 		//Only update commTime if not in startup state
 		if (!startupState) {
-			OCR1A = currCommTime - (currCommTime - newCommTime)/64;
-			//setCommTime(newCommTime);
+			//OCR1A = currCommTime - (currCommTime - newCommTime)/64;
+			setCommTime(newCommTime);
 		}
 		newCommTime = 0; //Reset calculation for new cycle
 	}
@@ -158,6 +153,7 @@ ISR(TIMER1_COMPA_vect)
 		double frac = startupRampElapsed / (double)STARTUP_DURATION; //Fraction of elapsed time to total startup duration
 		//uint16_t temp = (uint16_t)(STARTUP_TICKS_BEGIN - (STARTUP_TICKS_BEGIN - STARTUP_TICKS_END)*((3-2*frac)*frac*frac));
 		setCommTime((uint16_t)(STARTUP_TICKS_BEGIN - (STARTUP_TICKS_BEGIN - STARTUP_TICKS_END)*((3-2*frac)*frac*frac))); //Calculate new wait period based on S-curve
+		//OCR1A = (uint16_t)(STARTUP_TICKS_BEGIN - (STARTUP_TICKS_BEGIN - STARTUP_TICKS_END)*((3-2*frac)*frac*frac));
 		break;
 	case 2:
 		//stabilisation state, just continue commutating
@@ -187,6 +183,9 @@ ISR(TIMER2_COMP_vect)
 	CLR_A_LOW();
 	CLR_B_LOW();
 	CLR_C_LOW();
+	//testcount++;
+	//if (testcount % 5 == 0) nextCommutation();
+	//if (testcount >= 30) stopMotor();
 }
 
 ISR(TIMER2_OVF_vect)
@@ -202,6 +201,7 @@ ISR(TIMER2_OVF_vect)
 		SET_C_LOW();
 		break;
 	}
+	//TCNT2 = 156;
 }
 
 ISR(TIMER1_CAPT_vect)
@@ -213,6 +213,7 @@ ISR(TIMER1_CAPT_vect)
 	//}
 	totalZcLowTime += ICR1 - startZcLowTime;
 	zcDetected = 1; //ZC flag to detect spikes, it is cleared when ACO changes back to original reading
+	setLED();
 }
 
 ISR(ANA_COMP_vect)
@@ -220,6 +221,7 @@ ISR(ANA_COMP_vect)
 	//Analog comparator trigger is always the opposite of a ZC, it detects when a spike/false ZC occurs
 	startZcLowTime = TCNT1;
 	zcDetected = 0;
+	clrLED();
 }
 
 void setPWM(uint8_t val)
@@ -242,6 +244,8 @@ void startMotor(void)
 	pwmPhase = 1;
 	commState = 1;
 	startupState = 1;
+	TCNT1 = 0;
+	startupRampElapsed = 0;
 	
 	//stopZCDetection(); //Make sure ZC detection is off
 	
@@ -252,7 +256,7 @@ void startMotor(void)
 	DISABLE_OC1B();
 	TIMER1_START();
 	
-	for (i=0; i<2; i++) {
+	for (i=0; i<STARTUP_RLOCK_LOOPS; i++) {
 		t1_ovfs = 0;
 		nextCommutation();
 		while (t1_ovfs < STARTUP_RLOCK) {} //wait until defined overflows occurs
@@ -260,16 +264,15 @@ void startMotor(void)
 	
 	//Commutations now handled in interrupts
 	setPWM(STARTUP_RAMP_PWM);
-	setCommTime(STARTUP_TICKS_BEGIN);
+	setCommTime(STARTUP_TICKS_BEGIN); //OCR1A = STARTUP_TICKS_BEGIN;
 	ENABLE_COMMUTATION();
 	OCR1B = STARTUP_TICKS_BEGIN;
 	ENABLE_OC1B();
-	startupRampElapsed = 0;
 	while (currCommTime > STARTUP_TICKS_END) {} //Wait until ramp has finished
 	
 	//continue commutating at the same timer period to stabilise rotor speed
 	startupState = 2;
-	//setPWM(130);
+	//setPWM(120);
 	stabilisingCounts = 0;
 	while (stabilisingCounts < STARTUP_STABILISE) {}
 	/*
@@ -277,21 +280,27 @@ void startMotor(void)
 		pwmVal--;
 		setPWM(pwmVal);
 		stabilisingCounts = 0;
-		while (stabilisingCounts < 80) {}
+		while (stabilisingCounts < 50) {}
 	}
-	while (pwmVal > 80) {
+	while (pwmVal > 60) {
 		pwmVal--;
 		setPWM(pwmVal);
 		stabilisingCounts = 0;
-		while (stabilisingCounts < 100) {}
+		while (stabilisingCounts < 500) {}
 	}
-	while (pwmVal > 48) {
+	while (pwmVal > 55) {
 		pwmVal--;
 		setPWM(pwmVal);
 		stabilisingCounts = 0;
-		while (stabilisingCounts < 200) {}
-	}
-	*/
+		while (stabilisingCounts < 500) {}
+	}/*
+	while (pwmVal > 51) {
+		pwmVal--;
+		setPWM(pwmVal);
+		stabilisingCounts = 0;
+		while (stabilisingCounts < 1000) {}
+	}*/
+	
 	setLED();
 	//TODO: sense back-emf before passing to closed loop
 	
@@ -301,7 +310,7 @@ void startMotor(void)
 
 void stopMotor(void)
 {
-	stopZCDetection();
+	//stopZCDetection();
 	TIMER1_STOP(); //Commutation timer
 	STOP_PWM();
 	setPWM(0);
@@ -339,16 +348,16 @@ void nextCommutation(void)
 		//Do comparator stuff here before switching occurs
 		ADMUX = ADC_C;
 		
-		SET_B_HIGH();
 		CLR_C_HIGH();
+		SET_B_HIGH();
 		break;
 	case 2:
 		ADMUX = ADC_A;
 		
 		//Change pwmPhase 1->3, check current state
 		if (GET_A_LOW()) {
-			SET_C_LOW(); //if previous pwmPhase mosfet was on, set new phase to on
 			CLR_A_LOW();
+			SET_C_LOW(); //if previous pwmPhase mosfet was on, set new phase to on
 		}
 		//If mosfet was off, then the new phase will be activated on the next pwm interrupt,
 		//	no need to do anything extra
@@ -357,16 +366,16 @@ void nextCommutation(void)
 	case 3:
 		ADMUX = ADC_B;
 		
-		SET_A_HIGH();
 		CLR_B_HIGH();
+		SET_A_HIGH();
 	  	break;
 	case 4:
 		ADMUX = ADC_C;
 		
 		//Change pwmPhase 3->2, check current state
 		if (GET_C_LOW()) {
-			SET_B_LOW(); //if previous pwmPhase mosfet was on, set new phase to on
 			CLR_C_LOW();
+			SET_B_LOW(); //if previous pwmPhase mosfet was on, set new phase to on
 		}
 		//If mosfet was off, then the new phase will be activated on the next pwm interrupt,
 		//	no need to do anything extra
@@ -375,16 +384,16 @@ void nextCommutation(void)
 	case 5:
 		ADMUX = ADC_A;
 		
-		SET_C_HIGH();
 		CLR_A_HIGH();
+		SET_C_HIGH();
 	  	break;
 	case 6:
 		ADMUX = ADC_B;
 		
 		//Change pwmPhase 2->1, check current state
 		if (GET_B_LOW()) {
-			SET_A_LOW(); //if previous pwmPhase mosfet was on, set new phase to on
 			CLR_B_LOW();
+			SET_A_LOW(); //if previous pwmPhase mosfet was on, set new phase to on
 		}
 		//If mosfet was off, then the new phase will be activated on the next pwm interrupt,
 		//	no need to do anything extra

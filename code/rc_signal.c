@@ -21,13 +21,6 @@
 //===================================//
 //Converts pulse time measurement to PWM value
 
-#include <avr/io.h>
-#include <avr/interrupt.h>
-
-#include "config/BLDC_pindefs_breadboard.h"
-#include "config/BLDC_motor_A2208.h"
-#include "config/BLDC_config.h"
-
 #include "rc_signal.h"
 
 ISR(INT0_vect) //Signal capture

@@ -29,14 +29,13 @@
 //TODO: add timing settings for startup
 
 //Startup values, if motor does not start reliably these can be changed
-#define STARTUP_LOCK_PWM	0.15*PWM_TOP //PWM during rotor lock
+#define STARTUP_LOCK_PWM	0.5*PWM_TOP //PWM during rotor lock
 #define STARTUP_RAMP_PWM	0.4*PWM_TOP //Most motors should work with 30%
 //All values below assosciated with startup are CLOCK counts, not seconds. Time will be dependant on CPU speed and timer prescaler
-#define STARTUP_RLOCK		5 //How many clock overflows to lock the rotor for (1 ovf = 4ms)
-#define STARTUP_RAMP_FACTOR	0.002 //(0<x<0.1) The factor which commutation rate will increase every commutation during startup
-#define STARTUP_TICKS_BEGIN	30000 //Larger/heavier motors need larger values
+#define STARTUP_RLOCK		20 //How many clock overflows to lock the rotor for (1 ovf = 4ms)
+#define STARTUP_TICKS_BEGIN	40000 //Larger/heavier motors need larger values
 #define STARTUP_TICKS_END	10000 //Startup complete once commutation rate is this many clock ticks
 								 //If motor is starting but not achieving closed loop control lock, lower this
-								 
-#define ZC_BLANKING_TICKS	320 //Timer1 ticks to wait before enabling zero cross detection.
-#define ZC_SPIKE_CHECK		240 //ZC detection will reject spikes less than this value of clock ticks
+#define STARTUP_DURATION	30000 //(clock counts /256) to take for the ramp.
+								  // e.g. for a startup time of 1s: 16Mhz = 16 million clock counts/256 = 62500.
+#define STARTUP_STABILISE	1000 //How many commutations to loop for once ramp has completed

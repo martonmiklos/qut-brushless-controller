@@ -24,6 +24,8 @@
 //===================================//
 //Converts pulse time measurement to PWM value
 
+#include "config/BLDC_config.h"
+
 //RC servo pulse length should be between LOW and HIGH, in microseconds
 #define RCSIGNAL_LOW 	1000
 #define RCSIGNAL_HIGH	2000
