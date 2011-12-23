@@ -47,8 +47,8 @@
 //8-bit (0-255), 7.8khz
 #define PWM_TOP				255 //Maximum pwmVal possible
 //Leave a buffer between on and off (on > off) to avoid switching rapidly between on/off state
-#define PWM_ON_THR			60 //When off, pwmVal must go above this value before motor will turn on
-#define PWM_OFF_THR			10 //When running, motor will turn off when pwmVal goes below this value
+#define PWM_ON_THR			50 //When off, pwmVal must go above this value before motor will turn on
+#define PWM_OFF_THR			20 //When running, motor will turn off when pwmVal goes below this value
 
 //TIMER 1 - Commutation Timing
 //TODO

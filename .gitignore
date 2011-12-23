@@ -7,4 +7,5 @@
 *.map
 *.o
 *.sym
+*.txt
 .dep/

@@ -76,7 +76,7 @@ void USART_SendString(char* StringPtr)
 	}
 }
 
-void USART_SendInt(int num)
+void USART_SendInt(uint16_t num)
 {
 	if (DEBUG) {
 		char str[6];
